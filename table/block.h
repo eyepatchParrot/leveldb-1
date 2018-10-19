@@ -50,6 +50,8 @@ class Block {
   size_t size_;
   uint32_t restart_offset_;     // Offset in data_ of restart array
   bool owned_;                  // Block owns data_[]
+  int shared_; // Count of shared bytes between first and last
+  Interpolator interpolate_;
 
   // No copying allowed
   Block(const Block&);

@@ -15,29 +15,6 @@
 
 namespace leveldb {
 
-
-inline uint32_t Block::NumRestarts() const {
-  assert(size_ >= sizeof(uint32_t));
-  return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
-}
-
-Block::Block(const BlockContents& contents)
-    : data_(contents.data.data()),
-      size_(contents.data.size()),
-      owned_(contents.heap_allocated) {
-  if (size_ < sizeof(uint32_t)) {
-    size_ = 0;  // Error marker
-  } else {
-    size_t max_restarts_allowed = (size_-sizeof(uint32_t)) / sizeof(uint32_t);
-    if (NumRestarts() > max_restarts_allowed) {
-      // The size is too small for NumRestarts()
-      size_ = 0;
-    } else {
-      restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
-    }
-  }
-}
-
 Block::~Block() {
   if (owned_) {
     delete[] data_;
@@ -74,17 +51,21 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
   return p;
 }
 
-class Block::Iter : public Iterator {
+
+  uint32_t GetRestartPoint2(const char * data, uint32_t restarts, uint32_t index) {
+    //assert(index < num_restarts);
+    return DecodeFixed32(data + restarts + index * sizeof(uint32_t));
+    }
   // SeekToRestartPoint doesn't do any parsing, so it can't know how long the
   // shared bit is
-  Slice SliceAtRestartPoint(uint32_t offset) {
-      uint32_t region_offset = GetRestartPoint(offset);
+  Slice SliceAtRestartPoint(const char * data, uint32_t restarts, uint32_t offset) {
+      uint32_t region_offset = GetRestartPoint2(data, restarts, offset);
       uint32_t shared, non_shared, value_length;
-      const char* key_ptr = DecodeEntry(data_ + region_offset,
-                                        data_ + restarts_,
+      const char* key_ptr = DecodeEntry(data + region_offset,
+                                        data + restarts,
                                         &shared, &non_shared, &value_length);
       if (key_ptr == nullptr || (shared != 0)) {
-        CorruptionError();
+        // TODO figure out how to include CorruptionError();
         return Slice();
       }
       return Slice(key_ptr, non_shared);
@@ -108,6 +89,36 @@ class Block::Iter : public Iterator {
       assert(rv2 < 34000000);
       return rv2;
   }
+
+inline uint32_t Block::NumRestarts() const {
+  assert(size_ >= sizeof(uint32_t));
+  return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+}
+
+Block::Block(const BlockContents& contents)
+    : data_(contents.data.data()),
+      size_(contents.data.size()),
+      owned_(contents.heap_allocated),
+      shared_(CountShared(SliceAtRestartPoint(data_, NumRestarts(), 0),
+                              SliceAtRestartPoint(data_, NumRestarts(), NumRestarts()-1))),
+      interpolate_(ApproxKey(SliceAtRestartPoint(data_, NumRestarts(), 0), shared_),
+                      ApproxKey(SliceAtRestartPoint(data_, NumRestarts(), NumRestarts()-1), shared_),
+                      NumRestarts()-1) {
+  if (size_ < sizeof(uint32_t)) {
+    size_ = 0;  // Error marker
+  } else {
+    size_t max_restarts_allowed = (size_-sizeof(uint32_t)) / sizeof(uint32_t);
+    if (NumRestarts() > max_restarts_allowed) {
+      // The size is too small for NumRestarts()
+      size_ = 0;
+    } else {
+      restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
+    }
+  }
+}
+
+
+class Block::Iter : public Iterator {
  private:
   const Comparator* const comparator_;
   const char* const data_;      // underlying block contents
@@ -135,8 +146,7 @@ class Block::Iter : public Iterator {
   }
 
   uint32_t GetRestartPoint(uint32_t index) {
-    assert(index < num_restarts_);
-    return DecodeFixed32(data_ + restarts_ + index * sizeof(uint32_t));
+    return GetRestartPoint2(data_, restarts_, index);
   }
 
   void SeekToRestartPoint(uint32_t index) {
@@ -153,15 +163,17 @@ class Block::Iter : public Iterator {
   Iter(const Comparator* comparator,
        const char* data,
        uint32_t restarts,
-       uint32_t num_restarts)
+       uint32_t num_restarts,
+       int shared,
+       Interpolator interpolate)
       : comparator_(comparator),
         data_(data),
         restarts_(restarts),
         num_restarts_(num_restarts),
         current_(restarts_),
         restart_index_(num_restarts_),
-	shared_(CountShared(SliceAtRestartPoint(0), SliceAtRestartPoint(num_restarts_-1))),
-        interpolate_(ApproxKey(SliceAtRestartPoint(0), shared_), ApproxKey(SliceAtRestartPoint(num_restarts_-1), shared_), num_restarts_-1) {
+        shared_(shared),
+        interpolate_(interpolate) {
     assert(num_restarts_ > 0);
   }
 
@@ -224,7 +236,7 @@ class Block::Iter : public Iterator {
     for (int i = 1;; i++) {
             if (left == right) break;
             // TODO consider using seek since we'll need to seek at the end anyway
-            Slice next_slice = SliceAtRestartPoint(next);
+            Slice next_slice = SliceAtRestartPoint(data_, restarts_, next);
             if (!status_.ok())
                     return 1 << 30;
 
@@ -236,7 +248,7 @@ class Block::Iter : public Iterator {
                     assert(Compare(next_slice, target) > 0);
                     right = next-1;
             } else {
-                    for (; right > left && Compare(SliceAtRestartPoint(right),  target) >= 0; right--) ;
+                    for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
                     return right;
             }
             if (left >= right) {
@@ -254,10 +266,10 @@ class Block::Iter : public Iterator {
             // we'll hit an off by one error if we have to reverse.
             if (next + guard_size >= right) {
                     // reverse linear search
-                    for (; right > left && Compare(SliceAtRestartPoint(right),  target) >= 0; right--) ;
+                    for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
                     return right;
             } else if (next - guard_size <= left) {
-                    for (; left <= right && Compare(SliceAtRestartPoint(left), target) < 0; left++) ;
+                    for (; left <= right && Compare(SliceAtRestartPoint(data_, restarts_, left), target) < 0; left++) ;
                     return left > 0 ? left-1 : 0;
             }
             assert(next >= left);
@@ -380,7 +392,7 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    return new Iter(cmp, data_, restart_offset_, num_restarts);
+    return new Iter(cmp, data_, restart_offset_, num_restarts, shared_, interpolate_);
   }
 }
 
