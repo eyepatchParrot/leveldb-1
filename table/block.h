@@ -14,6 +14,25 @@ namespace leveldb {
 struct BlockContents;
 class Comparator;
 
+struct Interpolator {
+        // Expects the contents to already be initialized so it can use the scan functions
+        using Index = int64_t;
+        Interpolator(double first, double last, int64_t last_index)
+                : first(first), width_range(last_index > 0 ? (double)(last_index) / (double)(last - first) : 0.)
+                { assert(width_range >= 0.); }
+
+        const double first;
+        const double width_range;
+
+        Index operator()(const double target, const Index mid, const double mid_value) {
+                return  mid + (Index)((target - mid_value) * width_range);
+        }
+
+        Index operator()(const double target) {
+                return (Index)((target - first) * width_range);
+        }
+};
+
 class Block {
  public:
   // Initialize the block with the specified contents.

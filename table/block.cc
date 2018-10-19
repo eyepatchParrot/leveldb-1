@@ -15,6 +15,7 @@
 
 namespace leveldb {
 
+
 inline uint32_t Block::NumRestarts() const {
   assert(size_ >= sizeof(uint32_t));
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
@@ -74,6 +75,39 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
 }
 
 class Block::Iter : public Iterator {
+  // SeekToRestartPoint doesn't do any parsing, so it can't know how long the
+  // shared bit is
+  Slice SliceAtRestartPoint(uint32_t offset) {
+      uint32_t region_offset = GetRestartPoint(offset);
+      uint32_t shared, non_shared, value_length;
+      const char* key_ptr = DecodeEntry(data_ + region_offset,
+                                        data_ + restarts_,
+                                        &shared, &non_shared, &value_length);
+      if (key_ptr == nullptr || (shared != 0)) {
+        CorruptionError();
+        return Slice();
+      }
+      return Slice(key_ptr, non_shared);
+  }
+
+  int CountShared(Slice left, Slice right) {
+	  int shared = 0;
+	  for (; shared < left.size() && shared < right.size() && left[shared] == right[shared];
+			  shared++);
+	  return shared-1;
+  }
+
+  double ApproxKey(Slice target, int shared) {
+      const int approx_size = 4;
+      uint64_t rv = 0, place_value = 1, range = '9' - '0' + 2;
+      for (int i = 1; i < approx_size; i++) place_value *= range;
+      for (int i = shared; i < shared + approx_size; i++, place_value /= range) {
+        rv += place_value * (i >= target.size() || target[i] < '0' || target[i] > '9' ? 0 : target[i] - '0' + 1);
+      }
+      double rv2 = static_cast<double>(rv);
+      assert(rv2 < 34000000);
+      return rv2;
+  }
  private:
   const Comparator* const comparator_;
   const char* const data_;      // underlying block contents
@@ -83,9 +117,13 @@ class Block::Iter : public Iterator {
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
   uint32_t restart_index_;  // Index of restart block in which current_ falls
+  int shared_;
+  Interpolator interpolate_;
+
   std::string key_;
   Slice value_;
   Status status_;
+
 
   inline int Compare(const Slice& a, const Slice& b) const {
     return comparator_->Compare(a, b);
@@ -121,7 +159,9 @@ class Block::Iter : public Iterator {
         restarts_(restarts),
         num_restarts_(num_restarts),
         current_(restarts_),
-        restart_index_(num_restarts_) {
+        restart_index_(num_restarts_),
+	shared_(CountShared(SliceAtRestartPoint(0), SliceAtRestartPoint(num_restarts_-1))),
+        interpolate_(ApproxKey(SliceAtRestartPoint(0), shared_), ApproxKey(SliceAtRestartPoint(num_restarts_-1), shared_), num_restarts_-1) {
     assert(num_restarts_ > 0);
   }
 
@@ -162,6 +202,84 @@ class Block::Iter : public Iterator {
     } while (ParseNextKey() && NextEntryOffset() < original);
   }
 
+#define DO_SIP
+#ifdef DO_SIP
+
+
+  int SIP(const Slice& target) {
+    // Search restart array to find the last restart point
+    // with a key < target
+    const int guard_size = 8;
+    using Index = int64_t;
+    using Key = double;
+
+    Key x = ApproxKey(target, shared_);
+    Index left = 0, right = num_restarts_ - 1, next = interpolate_(x);
+
+    if (next < 0) return 0;
+    if (next >= num_restarts_) return num_restarts_ - 1;
+
+    // TODO try left == next as break condition,
+    // but have to be guaranteed restart block?
+    for (int i = 1;; i++) {
+            if (left == right) break;
+            // TODO consider using seek since we'll need to seek at the end anyway
+            Slice next_slice = SliceAtRestartPoint(next);
+            if (!status_.ok())
+                    return 1 << 30;
+
+            double next_key = ApproxKey(next_slice, shared_);
+            if (next_key < x) {
+                    assert(Compare(next_slice, target) < 0);
+                    left = next;
+            } else if (next_key > x) {
+                    assert(Compare(next_slice, target) > 0);
+                    right = next-1;
+            } else {
+                    for (; right > left && Compare(SliceAtRestartPoint(right),  target) >= 0; right--) ;
+                    return right;
+            }
+            if (left >= right) {
+                    // If left == right, then it doesn't matter which one we choose.
+                    // If left > right, then we want the smaller one
+                    assert(left - right <= 1);
+                    assert(right >= 0);
+                    return right;
+            }
+            //assert(left < right);
+            assert(left >= 0);
+            assert(right < num_restarts_);
+            next = interpolate_(x, next, next_key);
+            // TODO verify that the linear search works. I'm concerned that
+            // we'll hit an off by one error if we have to reverse.
+            if (next + guard_size >= right) {
+                    // reverse linear search
+                    for (; right > left && Compare(SliceAtRestartPoint(right),  target) >= 0; right--) ;
+                    return right;
+            } else if (next - guard_size <= left) {
+                    for (; left <= right && Compare(SliceAtRestartPoint(left), target) < 0; left++) ;
+                    return left > 0 ? left-1 : 0;
+            }
+            assert(next >= left);
+            assert(next <= right);
+    }
+  }
+
+  virtual void Seek(const Slice& target) {
+    // Linear search (within restart block) for first key >= target
+    int index = SIP(target);
+    if (!status_.ok()) return;
+    SeekToRestartPoint(index);
+    while (true) {
+	    if (!ParseNextKey()) {
+		    return;
+	    }
+	    if (Compare(key_, target) >= 0) {
+		    return;
+	    }
+    }
+  }
+#else
   virtual void Seek(const Slice& target) {
     // Binary search in restart array to find the last restart point
     // with a key < target
@@ -174,7 +292,7 @@ class Block::Iter : public Iterator {
       const char* key_ptr = DecodeEntry(data_ + region_offset,
                                         data_ + restarts_,
                                         &shared, &non_shared, &value_length);
-      if (key_ptr == nullptr || (shared != 0)) {
+      if (key_ptr == NULL || (shared != 0)) {
         CorruptionError();
         return;
       }
@@ -201,6 +319,7 @@ class Block::Iter : public Iterator {
       }
     }
   }
+#endif
 
   virtual void SeekToFirst() {
     SeekToRestartPoint(0);
