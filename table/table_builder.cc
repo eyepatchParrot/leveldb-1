@@ -14,6 +14,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "db/dbformat.h"
 
 namespace leveldb {
 
@@ -196,6 +197,18 @@ Status TableBuilder::status() const {
   return rep_->status;
 }
 
+static uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
+  assert(seq <= kMaxSequenceNumber);
+  assert(t <= kValueTypeForSeek);
+  return (seq << 8) | t;
+}
+
+void FindShortSuccessor(std::string* key) {
+  Slice user_key = ExtractUserKey(*key);
+  std::string tmp(user_key.data(), user_key.size());
+  PutFixed64(&tmp, PackSequenceAndType(kMaxSequenceNumber,kValueTypeForSeek));
+}
+
 Status TableBuilder::Finish() {
   Rep* r = rep_;
   Flush();
@@ -229,7 +242,7 @@ Status TableBuilder::Finish() {
   // Write index block
   if (ok()) {
     if (r->pending_index_entry) {
-      r->options.comparator->FindShortSuccessor(&r->last_key);
+      FindShortSuccessor(&r->last_key);
       std::string handle_encoding;
       r->pending_handle.EncodeTo(&handle_encoding);
       r->index_block.Add(r->last_key, Slice(handle_encoding));

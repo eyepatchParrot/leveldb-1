@@ -19,7 +19,7 @@ struct Interpolator {
         using Index = int64_t;
         Interpolator(double first, double last, int64_t last_index)
                 : first(first), width_range(last_index > 0 ? (double)(last_index) / (double)(last - first) : 0.)
-                { assert(width_range >= 0.); }
+                { assert(width_range >= 0.); assert(width_range < 1e9); }
 
         const double first;
         const double width_range;

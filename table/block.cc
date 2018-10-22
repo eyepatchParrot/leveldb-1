@@ -12,6 +12,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
+  #include "db/dbformat.h"
 
 namespace leveldb {
 
@@ -95,14 +96,21 @@ inline uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
+uint32_t RestartOffset(uint32_t size, uint32_t num_restarts) {
+	return size - (1 + num_restarts) * sizeof(uint32_t);
+}
+	
+
+
 Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
       size_(contents.data.size()),
+      restart_offset_(RestartOffset(size_, NumRestarts())),
       owned_(contents.heap_allocated),
-      shared_(CountShared(SliceAtRestartPoint(data_, NumRestarts(), 0),
-                              SliceAtRestartPoint(data_, NumRestarts(), NumRestarts()-1))),
-      interpolate_(ApproxKey(SliceAtRestartPoint(data_, NumRestarts(), 0), shared_),
-                      ApproxKey(SliceAtRestartPoint(data_, NumRestarts(), NumRestarts()-1), shared_),
+      shared_(CountShared(SliceAtRestartPoint(data_, restart_offset_, 0),
+                              SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1))),
+      interpolate_(ApproxKey(SliceAtRestartPoint(data_, restart_offset_, 0), shared_),
+                      ApproxKey(SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1), shared_),
                       NumRestarts()-1) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
@@ -129,6 +137,7 @@ class Block::Iter : public Iterator {
   uint32_t current_;
   uint32_t restart_index_;  // Index of restart block in which current_ falls
   int shared_;
+  Slice d_first_, d_last_;
   Interpolator interpolate_;
 
   std::string key_;
@@ -173,6 +182,8 @@ class Block::Iter : public Iterator {
         current_(restarts_),
         restart_index_(num_restarts_),
         shared_(shared),
+	d_first_(SliceAtRestartPoint(data_, restarts_, 0)),
+	d_last_(SliceAtRestartPoint(data_, restarts_, num_restarts_-1)),
         interpolate_(interpolate) {
     assert(num_restarts_ > 0);
   }
@@ -225,16 +236,24 @@ class Block::Iter : public Iterator {
     using Index = int64_t;
     using Key = double;
 
+    if (Compare(d_first_, target) > 0) {
+    	return 0;
+    }
+    if (Compare(d_last_, target) < 0) {
+    	return num_restarts_ - 1;
+    }
+
     Key x = ApproxKey(target, shared_);
     Index left = 0, right = num_restarts_ - 1, next = interpolate_(x);
 
-    if (next < 0) return 0;
-    if (next >= num_restarts_) return num_restarts_ - 1;
+    assert(next > -1000);
 
     // TODO try left == next as break condition,
     // but have to be guaranteed restart block?
     for (int i = 1;; i++) {
-            if (left == right) break;
+            if (left == right) {
+	    	return left;
+	    }
             // TODO consider using seek since we'll need to seek at the end anyway
             Slice next_slice = SliceAtRestartPoint(data_, restarts_, next);
             if (!status_.ok())
@@ -248,7 +267,7 @@ class Block::Iter : public Iterator {
                     assert(Compare(next_slice, target) > 0);
                     right = next-1;
             } else {
-                    for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
+                    for (right = next; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
                     return right;
             }
             if (left >= right) {
