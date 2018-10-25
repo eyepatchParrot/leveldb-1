@@ -82,6 +82,7 @@ static const uint64_t kTableMagicNumber = 0xdb4775248b80fb57ull;
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
+static const size_t kBlockFooterSize = sizeof(uint32_t);
 
 struct BlockContents {
   Slice data;           // Actual contents of data

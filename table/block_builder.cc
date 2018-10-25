@@ -33,6 +33,7 @@
 #include "leveldb/comparator.h"
 #include "leveldb/table_builder.h"
 #include "util/coding.h"
+#include "table/format.h"
 
 namespace leveldb {
 
@@ -57,7 +58,7 @@ void BlockBuilder::Reset() {
 size_t BlockBuilder::CurrentSizeEstimate() const {
   return (buffer_.size() +                        // Raw data buffer
           restarts_.size() * sizeof(uint32_t) +   // Restart array
-          sizeof(uint32_t));                      // Restart array length
+          kBlockFooterSize);                      // Restart array length
 }
 
 Slice BlockBuilder::Finish() {
@@ -65,7 +66,10 @@ Slice BlockBuilder::Finish() {
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
+  size_t bufferEnd = buffer_.size();
   PutFixed32(&buffer_, restarts_.size());
+
+  assert(buffer_.size() - bufferEnd == kBlockFooterSize);
   finished_ = true;
   return Slice(buffer_);
 }

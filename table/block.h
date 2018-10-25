@@ -23,14 +23,14 @@ struct Interpolator {
         }
 
         double ApproxKey(Slice target) const {
-                const int approx_size = 4;
-                uint64_t rv = 0, place_value = 1, range = '9' - '0' + 2;
+                const int approx_size = 8;
+                uint64_t rv = 0, place_value = 1, range = '9' - '0' + 1;
                 for (int i = 1; i < approx_size; i++) place_value *= range;
                 for (int i = shared.size(); i < shared.size() + approx_size; i++, place_value /= range) {
-                        rv += place_value * (i >= target.size() || target[i] < '0' || target[i] > '9' ? 0 : target[i] - '0' + 1);
+                        rv += place_value * (i >= target.size() || target[i] < '0' || target[i] > '9' ? 0 : target[i] - '0');
                 }
                 double rv2 = static_cast<double>(rv);
-                assert(rv2 < 34000000);
+                //assert(rv2 < 34000000);
                 return rv2;
         }
 

@@ -13,6 +13,7 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "db/dbformat.h"
+#include "table/format.h"
 
 namespace leveldb {
 
@@ -76,11 +77,11 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
 
 inline uint32_t Block::NumRestarts() const {
   assert(size_ >= sizeof(uint32_t));
-  return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
+  return DecodeFixed32(data_ + size_ - kBlockFooterSize);
 }
 
 uint32_t RestartOffset(uint32_t size, uint32_t num_restarts) {
-	return size - (1 + num_restarts) * sizeof(uint32_t);
+	return size - num_restarts * sizeof(uint32_t) - kBlockFooterSize;
 }
 
 Slice Block::Front() const {
@@ -98,15 +99,13 @@ Block::Block(const BlockContents& contents)
       owned_(contents.heap_allocated),
       interpolate_(Front(), Back(), NumRestarts()-1)
       {
-  if (size_ < sizeof(uint32_t)) {
+  if (size_ < kBlockFooterSize) {
     size_ = 0;  // Error marker
   } else {
-    size_t max_restarts_allowed = (size_-sizeof(uint32_t)) / sizeof(uint32_t);
+    size_t max_restarts_allowed = (size_-kBlockFooterSize) / sizeof(uint32_t);
     if (NumRestarts() > max_restarts_allowed) {
       // The size is too small for NumRestarts()
       size_ = 0;
-    } else {
-      restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
     }
   }
 }
@@ -207,9 +206,7 @@ class Block::Iter : public Iterator {
 
 #define DO_SIP
 #ifdef DO_SIP
-
-
-  int SIP(const Slice& target) {
+  long SIP(const Slice& target) {
     // Search restart array to find the last restart point
     // with a key < target
     const int guard_size = 8;
@@ -217,7 +214,7 @@ class Block::Iter : public Iterator {
     using Key = double;
 
     auto cmp = Slice(target.data(), interpolate_.shared.size()).compare(interpolate_.shared);
-    if (cmp < 0) return 0;
+    if (cmp < 0) return 0L;
     if (cmp > 0) return num_restarts_ - 1;
     //if (Compare(target, interpolate_.left) < 0) {
     //	return 0;
@@ -233,13 +230,15 @@ class Block::Iter : public Iterator {
     if (next < left) return left;
 
     assert(next > -1000);
+    
+    int lin = 0;
 
     // TODO try left == next as break condition,
     // but have to be guaranteed restart block?
-    for (int i = 1;; i++) {
-            if (left == right) {
-	    	return left;
-	    }
+    for (int i = 1;;) {
+            //if (left == right) {
+            //	return left;
+            //}
             // TODO consider using seek since we'll need to seek at the end anyway
             Slice next_slice = SliceAtRestartPoint(data_, restarts_, next);
             if (!status_.ok())
@@ -253,7 +252,7 @@ class Block::Iter : public Iterator {
                     assert(Compare(next_slice, target) > 0);
                     right = next-1;
             } else {
-                    for (right = next; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
+                    for (right = next; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--,lin++) ;
                     return right;
             }
             if (left >= right) {
@@ -267,12 +266,14 @@ class Block::Iter : public Iterator {
             assert(left >= 0);
             assert(right < num_restarts_);
             next = interpolate_(x, next, next_key);
+            i++;
             if (next + guard_size >= right) {
                     // reverse linear search
-                    for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
+                    for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--,lin++) ;
                     return right;
             } else if (next - guard_size <= left) {
-                    for (; left <= right && Compare(SliceAtRestartPoint(data_, restarts_, left), target) < 0; left++) ;
+                    for (; left <= right && Compare(SliceAtRestartPoint(data_, restarts_, left), target) < 0; left++,lin++) ;
+		    // TODO I don't think this check is needed because we already checked if the key is between left and right
                     return left > 0 ? left-1 : 0;
             }
             assert(next >= left);
@@ -282,7 +283,9 @@ class Block::Iter : public Iterator {
 
   virtual void Seek(const Slice& target) {
     // Linear search (within restart block) for first key >= target
-    int index = SIP(target);
+	
+    long index = SIP(target);
+
     if (!status_.ok()) return;
     SeekToRestartPoint(index);
     while (true) {
@@ -388,7 +391,7 @@ class Block::Iter : public Iterator {
 };
 
 Iterator* Block::NewIterator(const Comparator* cmp) {
-  if (size_ < sizeof(uint32_t)) {
+  if (size_ < kBlockFooterSize) {
     return NewErrorIterator(Status::Corruption("bad block contents"));
   }
   const uint32_t num_restarts = NumRestarts();
