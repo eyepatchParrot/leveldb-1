@@ -15,20 +15,42 @@ struct BlockContents;
 class Comparator;
 
 struct Interpolator {
+        int CountShared(Slice left, Slice right) const {
+                int shared = 0;
+                for (; shared < left.size() && shared < right.size() && left[shared] == right[shared];
+                                shared++);
+                return shared-1;
+        }
+
+        double ApproxKey(Slice target) const {
+                const int approx_size = 4;
+                uint64_t rv = 0, place_value = 1, range = '9' - '0' + 2;
+                for (int i = 1; i < approx_size; i++) place_value *= range;
+                for (int i = shared.size(); i < shared.size() + approx_size; i++, place_value /= range) {
+                        rv += place_value * (i >= target.size() || target[i] < '0' || target[i] > '9' ? 0 : target[i] - '0' + 1);
+                }
+                double rv2 = static_cast<double>(rv);
+                assert(rv2 < 34000000);
+                return rv2;
+        }
+
         // Expects the contents to already be initialized so it can use the scan functions
         using Index = int64_t;
-        Interpolator(double first, double last, int64_t last_index)
-                : first(first), width_range(last_index > 0 ? (double)(last_index) / (double)(last - first) : 0.)
+        Interpolator(Slice left, Slice right, int64_t width) :
+                shared(left.data(), CountShared(left, right)),
+                first(ApproxKey(left)),
+                width_range(width > 0 ? (double)(width) / (double)(ApproxKey(right) - first) : 0.)
                 { assert(width_range >= 0.); assert(width_range < 1e9); }
 
+        const Slice shared;
         const double first;
         const double width_range;
 
-        Index operator()(const double target, const Index mid, const double mid_value) {
+        Index operator()(const double target, const Index mid, const double mid_value) const {
                 return  mid + (Index)((target - mid_value) * width_range);
         }
 
-        Index operator()(const double target) {
+        Index operator()(const double target) const {
                 return (Index)((target - first) * width_range);
         }
 };
@@ -45,12 +67,13 @@ class Block {
 
  private:
   uint32_t NumRestarts() const;
+  Slice Front() const;
+  Slice Back() const;
 
   const char* data_;
   size_t size_;
   uint32_t restart_offset_;     // Offset in data_ of restart array
   bool owned_;                  // Block owns data_[]
-  int shared_; // Count of shared bytes between first and last
   Interpolator interpolate_;
 
   // No copying allowed

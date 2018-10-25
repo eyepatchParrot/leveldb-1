@@ -803,6 +803,11 @@ class Benchmark {
       snprintf(key, sizeof(key), "%016d", k);
       if (db_->Get(options, key, &value).ok()) {
         found++;
+      } else {
+        #ifndef NDEBUG
+        db_->Get(options, key, &value);
+        assert(false);
+        #endif
       }
       thread->stats.FinishedSingleOp();
     }

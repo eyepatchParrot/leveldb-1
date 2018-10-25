@@ -12,7 +12,7 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
-  #include "db/dbformat.h"
+#include "db/dbformat.h"
 
 namespace leveldb {
 
@@ -72,24 +72,7 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
       return Slice(key_ptr, non_shared);
   }
 
-  int CountShared(Slice left, Slice right) {
-	  int shared = 0;
-	  for (; shared < left.size() && shared < right.size() && left[shared] == right[shared];
-			  shared++);
-	  return shared-1;
-  }
 
-  double ApproxKey(Slice target, int shared) {
-      const int approx_size = 4;
-      uint64_t rv = 0, place_value = 1, range = '9' - '0' + 2;
-      for (int i = 1; i < approx_size; i++) place_value *= range;
-      for (int i = shared; i < shared + approx_size; i++, place_value /= range) {
-        rv += place_value * (i >= target.size() || target[i] < '0' || target[i] > '9' ? 0 : target[i] - '0' + 1);
-      }
-      double rv2 = static_cast<double>(rv);
-      assert(rv2 < 34000000);
-      return rv2;
-  }
 
 inline uint32_t Block::NumRestarts() const {
   assert(size_ >= sizeof(uint32_t));
@@ -99,19 +82,22 @@ inline uint32_t Block::NumRestarts() const {
 uint32_t RestartOffset(uint32_t size, uint32_t num_restarts) {
 	return size - (1 + num_restarts) * sizeof(uint32_t);
 }
-	
 
+Slice Block::Front() const {
+	return SliceAtRestartPoint(data_, restart_offset_, 0);
+}
+
+Slice Block::Back() const {
+	return SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1);
+}
 
 Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
       size_(contents.data.size()),
       restart_offset_(RestartOffset(size_, NumRestarts())),
       owned_(contents.heap_allocated),
-      shared_(CountShared(SliceAtRestartPoint(data_, restart_offset_, 0),
-                              SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1))),
-      interpolate_(ApproxKey(SliceAtRestartPoint(data_, restart_offset_, 0), shared_),
-                      ApproxKey(SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1), shared_),
-                      NumRestarts()-1) {
+      interpolate_(Front(), Back(), NumRestarts()-1)
+      {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -136,8 +122,6 @@ class Block::Iter : public Iterator {
   // current_ is offset in data_ of current entry.  >= restarts_ if !Valid
   uint32_t current_;
   uint32_t restart_index_;  // Index of restart block in which current_ falls
-  int shared_;
-  Slice d_first_, d_last_;
   Interpolator interpolate_;
 
   std::string key_;
@@ -173,7 +157,6 @@ class Block::Iter : public Iterator {
        const char* data,
        uint32_t restarts,
        uint32_t num_restarts,
-       int shared,
        Interpolator interpolate)
       : comparator_(comparator),
         data_(data),
@@ -181,9 +164,6 @@ class Block::Iter : public Iterator {
         num_restarts_(num_restarts),
         current_(restarts_),
         restart_index_(num_restarts_),
-        shared_(shared),
-	d_first_(SliceAtRestartPoint(data_, restarts_, 0)),
-	d_last_(SliceAtRestartPoint(data_, restarts_, num_restarts_-1)),
         interpolate_(interpolate) {
     assert(num_restarts_ > 0);
   }
@@ -236,15 +216,21 @@ class Block::Iter : public Iterator {
     using Index = int64_t;
     using Key = double;
 
-    if (Compare(d_first_, target) > 0) {
-    	return 0;
-    }
-    if (Compare(d_last_, target) < 0) {
-    	return num_restarts_ - 1;
-    }
+    auto cmp = Slice(target.data(), interpolate_.shared.size()).compare(interpolate_.shared);
+    if (cmp < 0) return 0;
+    if (cmp > 0) return num_restarts_ - 1;
+    //if (Compare(target, interpolate_.left) < 0) {
+    //	return 0;
+    //} else if (Compare(target, interpolate_.right) > 0) {
+    //	return num_restarts_ - 1;
+    //}
 
-    Key x = ApproxKey(target, shared_);
+
+    Key x = interpolate_.ApproxKey(target);
     Index left = 0, right = num_restarts_ - 1, next = interpolate_(x);
+
+    if (next > right) return right;
+    if (next < left) return left;
 
     assert(next > -1000);
 
@@ -259,7 +245,7 @@ class Block::Iter : public Iterator {
             if (!status_.ok())
                     return 1 << 30;
 
-            double next_key = ApproxKey(next_slice, shared_);
+            double next_key = interpolate_.ApproxKey(next_slice);
             if (next_key < x) {
                     assert(Compare(next_slice, target) < 0);
                     left = next;
@@ -274,15 +260,13 @@ class Block::Iter : public Iterator {
                     // If left == right, then it doesn't matter which one we choose.
                     // If left > right, then we want the smaller one
                     assert(left - right <= 1);
-                    assert(right >= 0);
-                    return right;
+                    assert(left < num_restarts_);
+                    return left;
             }
             //assert(left < right);
             assert(left >= 0);
             assert(right < num_restarts_);
             next = interpolate_(x, next, next_key);
-            // TODO verify that the linear search works. I'm concerned that
-            // we'll hit an off by one error if we have to reverse.
             if (next + guard_size >= right) {
                     // reverse linear search
                     for (; right > left && Compare(SliceAtRestartPoint(data_, restarts_, right),  target) >= 0; right--) ;
@@ -411,7 +395,7 @@ Iterator* Block::NewIterator(const Comparator* cmp) {
   if (num_restarts == 0) {
     return NewEmptyIterator();
   } else {
-    return new Iter(cmp, data_, restart_offset_, num_restarts, shared_, interpolate_);
+    return new Iter(cmp, data_, restart_offset_, num_restarts, interpolate_);
   }
 }
 
