@@ -34,6 +34,7 @@
 #include "leveldb/table_builder.h"
 #include "util/coding.h"
 #include "table/format.h"
+#include "table/interpolate.h"
 
 namespace leveldb {
 
@@ -62,14 +63,21 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
 }
 
 Slice BlockBuilder::Finish() {
+  Interpolator i(Slice(buffer_.data() + first_.data, first_.size),
+                 Slice(buffer_.data() + last_.data, last_.size),
+                 restarts_.size());
+
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
   size_t bufferEnd = buffer_.size();
+  PutLengthPostfixedSlice(&buffer_, i.shared);
+  PutDouble(&buffer_, i.width_range);
+  PutDouble(&buffer_, i.first);
   PutFixed32(&buffer_, restarts_.size());
 
-  assert(buffer_.size() - bufferEnd == kBlockFooterSize);
+  assert(buffer_.size() - bufferEnd >= kBlockFooterSize);
   finished_ = true;
   return Slice(buffer_);
 }
@@ -101,6 +109,16 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
 
   // Add string delta to buffer_ followed by value
   buffer_.append(key.data() + shared, non_shared);
+  if (counter_ == 0) {
+    if (restarts_.size() == 1) {
+      first_.data = buffer_.size();
+      first_.size = value.size();
+    }
+    // It will be right the last time
+    last_.data = buffer_.size();
+    last_.size = value.size();
+  }
+    
   buffer_.append(value.data(), value.size());
 
   // Update state

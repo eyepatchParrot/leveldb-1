@@ -14,6 +14,7 @@
 #include "util/logging.h"
 #include "db/dbformat.h"
 #include "table/format.h"
+#include "table/interpolate.h"
 
 namespace leveldb {
 

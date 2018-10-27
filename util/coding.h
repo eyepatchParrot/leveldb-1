@@ -26,12 +26,14 @@ void PutFixed64(std::string* dst, uint64_t value);
 void PutVarint32(std::string* dst, uint32_t value);
 void PutVarint64(std::string* dst, uint64_t value);
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
+void PutLengthPostfixedSlice(std::string* dst, const Slice& value);
 
 // Standard Get... routines parse a value from the beginning of a Slice
 // and advance the slice past the parsed value.
 bool GetVarint32(Slice* input, uint32_t* value);
 bool GetVarint64(Slice* input, uint64_t* value);
 bool GetLengthPrefixedSlice(Slice* input, Slice* result);
+Slice GetLengthPostfixedSlice(const char* end);
 
 // Pointer-based variants of GetVarint...  These either store a value
 // in *v and return a pointer just past the parsed value, or return
@@ -81,6 +83,16 @@ inline uint64_t DecodeFixed64(const char* ptr) {
     uint64_t lo = DecodeFixed32(ptr);
     uint64_t hi = DecodeFixed32(ptr + 4);
     return (hi << 32) | lo;
+  }
+}
+
+void PutDouble(std::string* dst, double value);
+inline double DecodeDouble(const char* ptr) {
+  if (port::kLittleEndian) {
+    double result;
+    memcpy(&result, ptr, sizeof(result));
+  } else {
+    assert(port::kLittleEndian);
   }
 }
 

@@ -32,6 +32,16 @@ void EncodeFixed64(char* buf, uint64_t value) {
   }
 }
 
+void PutDouble(std::string* dst, double value) {
+  char buf[sizeof(value)];
+  if (port::kLittleEndian) {
+    memcpy(buf, &value, sizeof(value));
+    dst->append(buf, sizeof(buf));
+  } else {
+    assert(port::kLittleEndian);
+  }
+}
+
 void PutFixed32(std::string* dst, uint32_t value) {
   char buf[sizeof(value)];
   EncodeFixed32(buf, value);
@@ -98,6 +108,11 @@ void PutVarint64(std::string* dst, uint64_t v) {
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
   PutVarint32(dst, value.size());
   dst->append(value.data(), value.size());
+}
+
+void PutLengthPostfixedSlice(std::string* dst, const Slice& value) {
+  dst->append(value.data(), value.size());
+  PutFixed32(dst, value.size());
 }
 
 int VarintLength(uint64_t v) {
@@ -189,6 +204,11 @@ bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   } else {
     return false;
   }
+}
+
+Slice GetLengthPostfixedSlice(const char* end) {
+  uint32_t len = DecodeFixed32(end - sizeof(uint32_t));
+  return Slice(end - sizeof(uint32_t) - len, len);
 }
 
 }  // namespace leveldb

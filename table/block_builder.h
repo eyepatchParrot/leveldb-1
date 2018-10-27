@@ -46,6 +46,10 @@ class BlockBuilder {
   int                   counter_;     // Number of entries emitted since restart
   bool                  finished_;    // Has Finish() been called?
   std::string           last_key_;
+  struct {
+    int data;
+    int size;
+  } first_, last_;
 
   // No copying allowed
   BlockBuilder(const BlockBuilder&);
