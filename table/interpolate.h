@@ -10,7 +10,7 @@ struct Interpolator {
                 int shared = 0;
                 for (; shared < left.size() && shared < right.size() && left[shared] == right[shared];
                                 shared++);
-                return shared-1;
+                return shared;
         }
 
         double ApproxKey(Slice target) const {
@@ -26,7 +26,8 @@ struct Interpolator {
         }
 
         double WidthRange(uint32_t width, Slice right, double first) {
-          return width > 1 ? (double)(width) / (double)(ApproxKey(right) - first) : 0.;
+          auto range = (double)(ApproxKey(right) - first);
+          return range > 0. ? (double)(width) / range : 0.;
         }
 
         // Expects the contents to already be initialized so it can use the scan functions

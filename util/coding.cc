@@ -111,6 +111,7 @@ void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
 }
 
 void PutLengthPostfixedSlice(std::string* dst, const Slice& value) {
+  assert(value.size() < 1000);
   dst->append(value.data(), value.size());
   PutFixed32(dst, value.size());
 }

@@ -65,7 +65,7 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
 Slice BlockBuilder::Finish() {
   Interpolator i(Slice(buffer_.data() + first_.data, first_.size),
                  Slice(buffer_.data() + last_.data, last_.size),
-                 restarts_.size());
+                 restarts_.size()-1);
 
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
@@ -110,11 +110,11 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   if (counter_ == 0) {
     if (restarts_.size() == 1) {
       first_.data = buffer_.size();
-      first_.size = value.size();
+      first_.size = non_shared;
     }
     // It will be right the last time
     last_.data = buffer_.size();
-    last_.size = value.size();
+    last_.size = non_shared;
   }
 
   // Add string delta to buffer_ followed by value
