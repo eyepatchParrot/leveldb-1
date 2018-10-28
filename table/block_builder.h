@@ -47,8 +47,8 @@ class BlockBuilder {
   bool                  finished_;    // Has Finish() been called?
   std::string           last_key_;
   struct {
-    int data;
-    int size;
+    int data=0;
+    int size=0;
   } first_, last_;
 
   // No copying allowed

@@ -107,8 +107,6 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   PutVarint32(&buffer_, non_shared);
   PutVarint32(&buffer_, value.size());
 
-  // Add string delta to buffer_ followed by value
-  buffer_.append(key.data() + shared, non_shared);
   if (counter_ == 0) {
     if (restarts_.size() == 1) {
       first_.data = buffer_.size();
@@ -118,7 +116,9 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     last_.data = buffer_.size();
     last_.size = value.size();
   }
-    
+
+  // Add string delta to buffer_ followed by value
+  buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());
 
   // Update state

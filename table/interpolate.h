@@ -26,7 +26,7 @@ struct Interpolator {
         }
 
         double WidthRange(uint32_t width, Slice right, double first) {
-          return width > 0 ? (double)(width) / (double)(ApproxKey(right) - first) : 0.;
+          return width > 1 ? (double)(width) / (double)(ApproxKey(right) - first) : 0.;
         }
 
         // Expects the contents to already be initialized so it can use the scan functions
