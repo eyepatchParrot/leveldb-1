@@ -74,14 +74,13 @@ static inline const char* DecodeEntry(const char* p, const char* limit,
       return Slice(key_ptr, non_shared);
   }
 
-
-
 inline uint32_t Block::NumRestarts() const {
   assert(size_ >= sizeof(uint32_t));
-  return DecodeFixed32(data_ + size_ - kBlockFooterSize);
+  return DecodeFixed32(data_ + size_ - kBlockNumRestartsOffset);
 }
 
 uint32_t RestartOffset(uint32_t size, uint32_t num_restarts) {
+	// TODO this needs to look at the shared slice to know how far back to go
 	return size - num_restarts * sizeof(uint32_t) - kBlockFooterSize;
 }
 
@@ -93,12 +92,20 @@ Slice Block::Back() const {
 	return SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1);
 }
 
+double Block::First() const {
+	return DecodeDouble(data_ + size_ - kBlockLeftOffset);
+}
+
+double Block::WidthRange() const {
+	return DecodeDouble(data_ + size_ - kBlockSlopeOffset);
+}
+
 Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
       size_(contents.data.size()),
       restart_offset_(RestartOffset(size_, NumRestarts())),
       owned_(contents.heap_allocated),
-      interpolate_(Front(), Back(), NumRestarts()-1)
+      interpolate_(Front(), Back(), NumRestarts()-1, First(), WidthRange())
       {
   if (size_ < kBlockFooterSize) {
     size_ = 0;  // Error marker

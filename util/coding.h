@@ -91,6 +91,7 @@ inline double DecodeDouble(const char* ptr) {
   if (port::kLittleEndian) {
     double result;
     memcpy(&result, ptr, sizeof(result));
+    return result;
   } else {
     assert(port::kLittleEndian);
   }
