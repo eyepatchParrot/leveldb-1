@@ -88,7 +88,7 @@ static const size_t kBlockLeftOffset = kBlockSlopeOffset+ sizeof(double);
 //static const size_t kBlockSharedOffset = kBlockSlopeOffset+ sizeof(uint32_t);
 //static const size_t kBlockFooterSize = kBlockSharedOffset;
 //static const size_t kBlockEndRestartsOffset = 0+sizeof(uint32_t);
-static const size_t kBlockFooterSize = kBlockSlopeOffset;
+static const size_t kBlockFooterSize = kBlockLeftOffset;
 
 struct BlockContents {
   Slice data;           // Actual contents of data
