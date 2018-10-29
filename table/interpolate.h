@@ -32,14 +32,6 @@ struct Interpolator {
 
         // Expects the contents to already be initialized so it can use the scan functions
         using Index = int64_t;
-        Interpolator(Slice left, Slice right, uint32_t width, double first, double width_range) :
-                shared(Slice(left.data(), CountShared(left, right))),
-                first(first),
-                width_range(width_range)
-                {
-		  assert(first==ApproxKey(left)); assert(width_range == WidthRange(width, right, first)); 
- assert(width_range >= 0.); assert(width_range < 1e9);
-}
         Interpolator(Slice left, Slice right, uint32_t width) :
                 shared(Slice(left.data(), CountShared(left, right))),
                 first(ApproxKey(left)),

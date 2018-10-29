@@ -85,10 +85,8 @@ static const size_t kBlockTrailerSize = 5;
 static const size_t kBlockNumRestartsOffset = 0+sizeof(uint32_t);
 static const size_t kBlockSlopeOffset = kBlockNumRestartsOffset+sizeof(double);
 static const size_t kBlockLeftOffset = kBlockSlopeOffset+ sizeof(double);
-//static const size_t kBlockSharedOffset = kBlockSlopeOffset+ sizeof(uint32_t);
-//static const size_t kBlockFooterSize = kBlockSharedOffset;
-//static const size_t kBlockEndRestartsOffset = 0+sizeof(uint32_t);
-static const size_t kBlockFooterSize = kBlockLeftOffset;
+static const size_t kBlockSharedOffset = kBlockLeftOffset + sizeof(uint32_t);
+static const size_t kBlockFooterSize = kBlockSharedOffset;
 
 struct BlockContents {
   Slice data;           // Actual contents of data

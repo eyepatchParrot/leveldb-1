@@ -27,17 +27,16 @@ class Block {
 
  private:
   uint32_t NumRestarts() const;
+  uint32_t RestartOffset(uint32_t) const;
   Slice Shared() const ;
   double First() const ;
   double WidthRange() const ;
-  Slice Front() const ;
-  Slice Back() const ;
 
   const char* data_;
   size_t size_;
+  Interpolator interpolate_;
   uint32_t restart_offset_;     // Offset in data_ of restart array
   bool owned_;                  // Block owns data_[]
-  Interpolator interpolate_;
 
   // No copying allowed
   Block(const Block&);

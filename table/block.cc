@@ -79,17 +79,12 @@ inline uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - kBlockNumRestartsOffset);
 }
 
-uint32_t RestartOffset(uint32_t size, uint32_t num_restarts) {
-	// TODO this needs to look at the shared slice to know how far back to go
-	return size - num_restarts * sizeof(uint32_t) - kBlockFooterSize;
+uint32_t Block::RestartOffset(uint32_t num_restarts) const {
+	return size_ - num_restarts * sizeof(uint32_t) - interpolate_.shared.size() - kBlockSharedOffset;
 }
 
-Slice Block::Front() const {
-	return SliceAtRestartPoint(data_, restart_offset_, 0);
-}
-
-Slice Block::Back() const {
-	return SliceAtRestartPoint(data_, restart_offset_, NumRestarts()-1);
+Slice Block::Shared() const {
+  return GetLengthPostfixedSlice(data_ + size_ - kBlockSharedOffset);
 }
 
 double Block::First() const {
@@ -103,9 +98,9 @@ double Block::WidthRange() const {
 Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
       size_(contents.data.size()),
-      restart_offset_(RestartOffset(size_, NumRestarts())),
-      owned_(contents.heap_allocated),
-      interpolate_(Front(), Back(), NumRestarts()-1, First(), WidthRange())
+      interpolate_(Shared(),  First(), WidthRange()),
+      restart_offset_(RestartOffset(NumRestarts())),
+      owned_(contents.heap_allocated)
       {
   if (size_ < kBlockFooterSize) {
     size_ = 0;  // Error marker

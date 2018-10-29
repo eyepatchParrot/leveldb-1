@@ -72,16 +72,20 @@ Slice BlockBuilder::Finish() {
     PutFixed32(&buffer_, restarts_[i]);
   }
   size_t bufferEnd = buffer_.size();
-  //PutLengthPostfixedSlice(&buffer_, i.shared);
+  PutLengthPostfixedSlice(&buffer_, i.shared);
   PutDouble(&buffer_, i.first);
   PutDouble(&buffer_, i.width_range);
   PutFixed32(&buffer_, restarts_.size());
+  #ifndef NDEBUG
   auto test_first = DecodeDouble(buffer_.data() + buffer_.size() - kBlockLeftOffset);
   auto test_slope = DecodeDouble(buffer_.data() + buffer_.size() - kBlockSlopeOffset);
   auto test_restarts = DecodeFixed32(buffer_.data() + buffer_.size() - kBlockNumRestartsOffset);
+  auto test_shared = GetLengthPostfixedSlice(buffer_.data() + buffer_.size() - kBlockSharedOffset);
   assert(i.first == test_first);
   assert(i.width_range == test_slope);
   assert(test_restarts == restarts_.size());
+  assert(test_shared == i.shared);
+  #endif
 
   assert(buffer_.size() - bufferEnd >= kBlockFooterSize);
   finished_ = true;

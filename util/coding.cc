@@ -207,9 +207,9 @@ bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   }
 }
 
-Slice GetLengthPostfixedSlice(const char* end) {
-  uint32_t len = DecodeFixed32(end - sizeof(uint32_t));
-  return Slice(end - sizeof(uint32_t) - len, len);
+Slice GetLengthPostfixedSlice(const char* length) {
+  uint32_t len = DecodeFixed32(length);
+  return Slice(length - len, len);
 }
 
 }  // namespace leveldb
