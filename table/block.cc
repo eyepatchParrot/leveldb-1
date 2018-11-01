@@ -207,7 +207,7 @@ class Block::Iter : public Iterator {
     } while (ParseNextKey() && NextEntryOffset() < original);
   }
 
-#define DO_SIP
+//#define DO_SIP
 #ifdef DO_SIP
   long SIP(const Slice& target) {
     // Search restart array to find the last restart point
